@@ -1,0 +1,10 @@
+[package]
+name = "heart-rate-monitor"
+version = "0.1.0"
+edition = "2024"
+authors = ["kanggui"]
+
+[dependencies]
+tokio = { version = "1.*", features = ["macros", "rt-multi-thread", "fs", "sync", "io-util", "net"] }
+bluest = "0.6"
+futures-lite = "2.*"
