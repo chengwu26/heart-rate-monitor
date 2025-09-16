@@ -13,7 +13,6 @@ use tokio_stream::{Stream, StreamExt};
 const HRS_UUID: Uuid = bluetooth_uuid_from_u16(0x180D);
 static LATEST_RATE: AtomicU16 = AtomicU16::new(0);
 
-#[allow(dead_code)]
 struct HeartRateMonitor {
     adapter: Adapter,
     device: Device,
@@ -21,9 +20,7 @@ struct HeartRateMonitor {
 }
 
 impl HeartRateMonitor {
-    #[allow(unused_variables)]
     async fn new(adapter: Adapter, device: Device) -> Result<Self, Box<dyn Error>> {
-        #[cfg(not(target_os = "windows"))]
         // Connect
         if !device.is_connected().await {
             adapter.connect_device(&device).await?;
@@ -67,7 +64,6 @@ impl HeartRateMonitor {
     }
 
     async fn reconnect(&mut self) -> Result<(), Box<dyn Error>> {
-        #[cfg(not(target_os = "windows"))]
         self.adapter.connect_device(&self.device).await?;
 
         #[cfg(target_os = "windows")]
@@ -123,7 +119,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // The connection may be disconnected for various reasons.
     // In this case, try to reconnect it.
     let mut connect_retry = 0;
-    while connect_retry < 8 {
+    while connect_retry < 5 {
         if monitor.borrow().is_connected().await {
             connect_retry = 0;
             println!("Connected");
@@ -139,10 +135,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         connect_retry += 1;
         eprintln!("Bluetooth Device disconnected, try to reconnect({connect_retry}).");
-        monitor.borrow_mut().reconnect().await?;
-        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        if let Err(e) = monitor.borrow_mut().reconnect().await {
+            eprintln!("Failed to reconnect: {e}")
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     }
-    eprintln!("Can't connected to device");
     Ok(())
 }
 
@@ -237,7 +234,7 @@ async fn process_connection(mut stream: TcpStream) {
         let response = if rate == 0 {
             String::from("{\"rate\": none}")
         } else {
-            format!("{{\"rate\": {}}}", rate)
+            format!("{{\"rate\": {rate}}}")
         };
 
         ("HTTP/1.1 200 OK", response)
