@@ -3,57 +3,110 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>实时心率显示</title>
+    <title>Heart Rate</title>
     <style>
+    html, body {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
 
-        html, body {
-          width: fit-content;
-          height: fit-content;
-          display: inline-block;
-        }   
-        .heart-rate-container {
-            position: relative;
-            display: flex;
-            align-items: center;
-            background-color: rgba(0, 0, 0, 0.5);
-            border-radius: 20px;
-            padding: 5px 10px;
-            color: white;
-            min-width: 50px;
-            height: 30px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-            transition: all 0.3s ease;
-        }
-        
-        .heart-icon {
-            color: #ff4d4d;
-            font-size: 18px;
-            margin-right: 8px;
-            animation: pulse 1s infinite;
-        }
-        
-        .heart-rate {
-            font-size: 16px;
-            font-weight: bold;
-        }
-        
-        /* 高心率样式 */
-        .high-rate {
-            background-color: rgba(255, 50, 50, 0.6);
-            animation: pulse-fast 0.5s infinite;
-        }
-        
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.1); }
-            100% { transform: scale(1); }
-        }
-        
-        @keyframes pulse-fast {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.1); }
-            100% { transform: scale(1); }
-        }
+    .heart-rate-container {
+        position: relative;
+        display: flex;
+        align-items: center;
+        background-color: rgba(0, 0, 0, 0.5);
+        border-radius: 20px;
+        padding: 5px 10px;
+        color: white;
+        min-width: 50px;
+        height: 30px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        transition: all 0.3s ease;
+    }
+
+    .heart-icon {
+        color: #ff4d4d;
+        font-size: 18px;
+        margin-right: 8px;
+        animation: pulse 1s infinite;
+    }
+
+    .heart-rate {
+        font-size: 16px;
+        font-weight: bold;
+    }
+
+    /* 高心率样式 */
+    .high-rate {
+        background-color: rgba(255, 50, 50, 0.6);
+        animation: pulse-fast 0.5s infinite;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.1); }
+      100% { transform: scale(1); }
+  }
+
+  @keyframes pulse-fast {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.1); }
+      100% { transform: scale(1); }
+
+  } html, body {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }   
+
+    .heart-rate-container {
+        position: relative;
+        display: flex;
+        align-items: center;
+        background-color: rgba(0, 0, 0, 0.5);
+        border-radius: 20px;
+        padding: 5px 10px;
+        color: white;
+        min-width: 50px;
+        height: 30px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        transition: all 0.3s ease;
+    }
+
+    .heart-icon {
+        color: #ff4d4d;
+        font-size: 18px;
+        margin-right: 8px;
+        animation: pulse 1s infinite;
+    }
+
+    .heart-rate {
+        font-size: 16px;
+        font-weight: bold;
+    }
+
+    /* 高心率样式 */
+    .high-rate {
+        background-color: rgba(255, 50, 50, 0.6);
+        animation: pulse-fast 0.5s infinite;
+    }
+
+    @keyframes pulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.1); }
+        100% { transform: scale(1); }
+    }
+
+    @keyframes pulse-fast {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.1); }
+        100% { transform: scale(1); }
+    }
     </style>
 </head>
 <body>
@@ -64,10 +117,9 @@
 
     <script>
         // 心率阈值 - 超过这个值视为高心率
-        const HIGH_RATE_THRESHOLD = 110;
+        const HIGH_RATE_THRESHOLD = 115;
         let currentRate = 0;
 
-        // 从Rust服务器获取心率数据
         async function fetchHeartRate() {
             try {
                 const response = await fetch('http://127.0.0.1:3030/heart-rate');
