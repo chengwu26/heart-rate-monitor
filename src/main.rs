@@ -1,32 +1,32 @@
+use std::cell::RefCell;
 use std::error::Error;
+use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU16, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use bluest::btuuid::{bluetooth_uuid_from_u16, characteristics::HEART_RATE_MEASUREMENT};
 use bluest::{Adapter, Characteristic, Device, Uuid};
-use tokio::fs::OpenOptions;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-// use tokio::signal;
 use tokio_stream::{Stream, StreamExt};
 
 const HRS_UUID: Uuid = bluetooth_uuid_from_u16(0x180D);
 static LATEST_RATE: AtomicU16 = AtomicU16::new(0);
 
+#[allow(dead_code)]
 struct HeartRateMonitor {
+    adapter: Adapter,
     device: Device,
-    // service: Service,
     characteristic: Characteristic,
 }
 
 impl HeartRateMonitor {
-    async fn new(adapter: &Adapter, device: Device) -> Result<Self, Box<dyn Error>> {
+    #[allow(unused_variables)]
+    async fn new(adapter: Adapter, device: Device) -> Result<Self, Box<dyn Error>> {
+        #[cfg(not(target_os = "windows"))]
         // Connect
         if !device.is_connected().await {
-            println!("Connecting device");
             adapter.connect_device(&device).await?;
-            println!("Connected");
         }
 
         // Discover services
@@ -47,8 +47,8 @@ impl HeartRateMonitor {
             )?;
 
         Ok(Self {
+            adapter,
             device,
-            // service: heart_rate_service,
             characteristic: heart_rate_measurement,
         })
     }
@@ -66,20 +66,39 @@ impl HeartRateMonitor {
         self.device.is_connected().await
     }
 
+    async fn reconnect(&mut self) -> Result<(), Box<dyn Error>> {
+        #[cfg(not(target_os = "windows"))]
+        self.adapter.connect_device(&self.device).await?;
+
+        #[cfg(target_os = "windows")]
+        {
+            let heart_rate_service = self
+                .device
+                .discover_services_with_uuid(HRS_UUID)
+                .await?
+                .into_iter()
+                .next()
+                .ok_or("Device should has one heart rate service at least")?;
+
+            self.characteristic = heart_rate_service
+            .discover_characteristics_with_uuid(HEART_RATE_MEASUREMENT)
+            .await?
+            .into_iter()
+            .next()
+            .ok_or(
+                "HeartRateService should has one heart rate measurement characteristic at least",
+            )?;
+        }
+        Ok(())
+    }
+
     fn parse(raw_data: Vec<u8>) -> Result<u16, Box<dyn Error>> {
         let flag = *raw_data.get(0).ok_or("No flag")?;
-
         // Heart Rate Value Format
         let mut heart_rate_value = *raw_data.get(1).ok_or("No heart rate u8")? as u16;
         if flag & 0b00001 != 0 {
             heart_rate_value |= (*raw_data.get(2).ok_or("No heart rate u16")? as u16) << 8;
         }
-
-        // Sensor Contact Supported
-        // let mut sensor_contact = None;
-        // if flag & 0b00100 != 0 {
-        //     sensor_contact = Some(flag & 0b00010 != 0)
-        // }
         Ok(heart_rate_value)
     }
 }
@@ -92,124 +111,109 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .ok_or("Bluetooth adapter not found")?;
     adapter.wait_available().await?;
 
-    // Get the HRS device
-    let hrs_device = {
-        let devices = adapter.connected_devices_with_services(&[HRS_UUID]).await?;
-        // TODO: 多个设备让用户选择
-        if let Some(device) = devices.into_iter().next() {
-            device
-        } else {
-            println!("Scan HRS device...");
-            adapter
-                .discover_devices(&[HRS_UUID])
-                .await?
-                .next()
-                .await
-                .ok_or("Failed to discover device")??
+    let hrs_device = select_device(&adapter).await?;
+
+    // Start HTTP service
+    tokio::spawn(http_service());
+
+    let monitor = Arc::new(RefCell::new(
+        HeartRateMonitor::new(adapter, hrs_device).await?,
+    ));
+
+    // The connection may be disconnected for various reasons.
+    // In this case, try to reconnect it.
+    let mut connect_retry = 0;
+    while connect_retry < 8 {
+        if monitor.borrow().is_connected().await {
+            connect_retry = 0;
+            println!("Connected");
+        }
+
+        let monitor_cloned = monitor.clone();
+        tokio::select! {
+            _ = hr_monitor(monitor.clone()) => {}
+            _ = async move {
+                    while monitor_cloned.borrow().is_connected().await {
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await
+                } } => {}
+        }
+        connect_retry += 1;
+        eprintln!("Bluetooth Device disconnected, try to reconnect({connect_retry}).");
+        monitor.borrow_mut().reconnect().await?;
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    }
+    eprintln!("Can't connected to device");
+    Ok(())
+}
+
+async fn select_device(adapter: &Adapter) -> Result<bluest::Device, bluest::Error> {
+    use std::time::{Duration, Instant};
+
+    let mut devices_stream = adapter.discover_devices(&[HRS_UUID]).await?;
+    let mut devices = Vec::new();
+
+    println!("Scanning HRS devices...");
+    let start = Instant::now();
+    while Instant::now().duration_since(start) < Duration::from_millis(1500) || devices.is_empty() {
+        if let Some(Ok(device)) = devices_stream.next().await
+            && !devices.contains(&device)
+        {
+            devices.push(device);
+        }
+    }
+    println!("Done");
+
+    // Print devices
+    for (i, device) in devices.iter().enumerate() {
+        println!("{}) {device}", i + 1);
+    }
+
+    // Let user select a device
+    let mut input = String::new();
+    loop {
+        print!("Input a device index (q: quit, 0: refresh): ");
+        std::io::stdin()
+            .read_line(&mut input)
+            .expect("Failed to read from stdin.");
+
+        if let Ok(index) = input.trim().parse::<usize>()
+            && index > 0
+            && index <= devices.len()
+        {
+            let device = devices.into_iter().nth(index - 1).unwrap();
+            println!("Selected Device: [{}] {}", device, device.id());
+            return Ok(device);
+        } else if input.as_str() == "q\n" {
+            std::process::exit(0);
+        } else if input.as_str() == "0\n" {
+            unimplemented!("Unimplement refresh");
+        }
+        input.clear();
+    }
+}
+
+async fn http_service() {
+    let listener = match TcpListener::bind("127.0.0.1:3030").await {
+        Ok(t) => {
+            println!("Listening at http://127.0.0.1:3030");
+            t
+        }
+        Err(e) => {
+            eprintln!("Failed to use port 3030: {e}\nHTTP Service Exit");
+            return;
         }
     };
 
-    let device_name = hrs_device
-        .name_async()
-        .await
-        .unwrap_or_else(|_| String::from("unknow device"));
-    println!("Selected Device: [{}] {:?}", hrs_device, device_name);
-
-    // Task: http service
-    tokio::spawn(async move {
-        let listener = match TcpListener::bind("127.0.0.1:3030").await {
-            Ok(t) => {
-                println!("Listening at http://127.0.0.1:3030");
-                t
-            }
+    loop {
+        let stream = match listener.accept().await {
+            Ok((s, _)) => s,
             Err(e) => {
-                eprintln!("Failed to use port 3030: {e}");
-                eprintln!("HTTP Service Exit");
-                return;
-            }
-        };
-
-        loop {
-            let stream = match listener.accept().await {
-                Ok((s, _)) => s,
-                Err(e) => {
-                    eprintln!("Failed to get client: {e}");
-                    break;
-                }
-            };
-            tokio::spawn(process_connection(stream));
-        }
-        eprintln!("HTTP Service Exit");
-    });
-
-    // Task: record heart rate
-    let (heart_rate_tx, mut heart_rate_rx) = tokio::sync::mpsc::channel(10);
-    tokio::spawn(async move {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("The system time is incorrect")
-            .as_millis();
-        let file_name = format!("{device_name}_{timestamp}.txt",);
-        let mut file = match OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&file_name)
-            .await
-        {
-            Ok(f) => f,
-            Err(e) => {
-                eprintln!("Failed to create/open file '{file_name}': {e}");
-                return;
-            }
-        };
-
-        while let Some((timestamp, heart_rate)) = heart_rate_rx.recv().await {
-            if let Err(e) = file
-                .write_all(format!("{timestamp}\t{heart_rate}\n").as_bytes())
-                .await
-            {
-                eprintln!("Filed write file '{file_name}': {e}");
+                eprintln!("Failed to get client: {e}");
                 break;
             }
-        }
-        eprintln!("Record Task Exit.");
-    });
-
-    let monitor = Arc::new(HeartRateMonitor::new(&adapter, hrs_device).await?);
-
-    // Task: read heart rate from HRS device
-    let monitor_cloned = monitor.clone();
-    tokio::spawn(async move {
-        let mut heart_rate_stream = match monitor_cloned.notify().await {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("Failed to enable notification for the HRS device: {e}");
-                std::process::exit(1);
-            }
         };
-
-        while let Some(Ok(raw_data)) = heart_rate_stream.next().await {
-            let timestamp = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("The system time is incorrect")
-                .as_millis();
-
-            let heart_rate_value =
-                HeartRateMonitor::parse(raw_data).expect("The HRS device sent invalid data.");
-            // println!("Timestamp: {timestamp}, HeartRate: {heart_rate_value}");
-            LATEST_RATE.store(heart_rate_value, Ordering::SeqCst);
-            let _ = heart_rate_tx.send((timestamp, heart_rate_value)).await;
-        }
-    });
-
-    // tokio::select! {
-    // _ = signal::ctrl_c() => {},
-    // _ = async move {
-    while monitor.is_connected().await {}
-    // } => {},
-    // };
-    println!("Device disconnected.");
-    Ok(())
+        tokio::spawn(process_connection(stream));
+    }
 }
 
 async fn process_connection(mut stream: TcpStream) {
@@ -228,7 +232,14 @@ async fn process_connection(mut stream: TcpStream) {
             .unwrap_or_else(|_| String::from("HTML file not found"));
         ("HTTP/1.1 200 OK", html)
     } else if buffer.starts_with(heart_rate) {
-        let response = format!("{{\"rate\": {}}}", LATEST_RATE.load(Ordering::SeqCst));
+        let rate = LATEST_RATE.load(Ordering::SeqCst);
+
+        let response = if rate == 0 {
+            String::from("{\"rate\": none}")
+        } else {
+            format!("{{\"rate\": {}}}", rate)
+        };
+
         ("HTTP/1.1 200 OK", response)
     } else {
         ("HTTP/1.1 404 NOT FOUND", String::from("404 Not Found"))
@@ -253,5 +264,22 @@ async fn process_connection(mut stream: TcpStream) {
     if let Err(e) = stream.flush().await {
         eprintln!("{e}");
         return;
+    }
+}
+
+async fn hr_monitor<T: Deref<Target = RefCell<HeartRateMonitor>>>(monitor: T) {
+    let monitor = monitor.borrow();
+    let mut heart_rate_stream = match monitor.notify().await {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Failed to enable notification for the HRS device: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    while let Some(Ok(raw_data)) = heart_rate_stream.next().await {
+        let heart_rate_value =
+            HeartRateMonitor::parse(raw_data).expect("The HRS device sent invalid data.");
+        LATEST_RATE.store(heart_rate_value, Ordering::SeqCst);
     }
 }

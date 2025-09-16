@@ -64,7 +64,7 @@
 
     <script>
         // 心率阈值 - 超过这个值视为高心率
-        const HIGH_RATE_THRESHOLD = 100;
+        const HIGH_RATE_THRESHOLD = 110;
         let currentRate = 0;
 
         // 从Rust服务器获取心率数据
@@ -75,7 +75,7 @@
                     throw new Error('网络响应不正常');
                 }
                 const data = await response.json();
-                currentRate = parseInt(data.rate) || 0;
+                currentRate = parseInt(data.rate) || "--";
                 updateDisplay(currentRate);
             } catch (error) {
                 console.error('获取心率数据失败:', error);
