@@ -30,8 +30,7 @@ Special thanks to the original author for their Bluetooth LE implementation.
 
 ### Important Notice
 
-!!! warning
-    This project is currently in active development.
+This project is currently in active development.
 
 Please note:
 - Functionality may be incomplete or unstable
