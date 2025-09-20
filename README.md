@@ -11,30 +11,23 @@ recordings.
 
 - Connects to compatible heart rate monitoring devices (MiBand 10 and similar)
 - Provides real-time heart rate data via HTTP endpoint
+- Customizable HTTP server port
 - Simple integration with OBS Studio using Browser Source
 - Customizable heart rate UI
 - Cross-platform support (Windows, macOS, Linux)
+- Automatic reconnection
 
-### How It Works
+### About Customize UI
+There are some variables that can be used in the HTML file to replace runtime information(such as listening port).
+The variable name must enclosed in "{{}}" (eg. `{{PORT}}`).
 
-1. The tool connects to your smart band via Bluetooth LE
-2. It continuously receives heart rate broadcasts from the device
-3. An embedded HTTP server provides the data at http://127.0.0.1:3030/heart-rate
-4. OBS Studio can display the data using a Browser Source
+#### Available variables
+| Name | Description |
+| --- | --- |
+| PORT | HTTP server listening port |
 
 ### Acknowledgments
 
 This project was inspired by and builds upon the work of
 [miband-heart-rate](https://github.com/Tnze/miband-heart-rate).
 Special thanks to the original author for their Bluetooth LE implementation.
-
-### Important Notice
-
-This project is currently in active development.
-
-Please note:
-- Functionality may be incomplete or unstable
-- APIs are subject to change
-- Documentation may not be fully up-to-date
-
-We welcome contributions and feedback as we continue to improve this tool!
