@@ -116,52 +116,69 @@
     </div>
 
     <script>
-        // 心率阈值 - 超过这个值视为高心率
-        const HIGH_RATE_THRESHOLD = 115;
-        let currentRate = 0;
+      // 心率阈值 - 超过这个值视为高心率
+      const HIGH_RATE_THRESHOLD = 115;
+      let currentRate = 0;
 
-        async function fetchHeartRate() {
-            try {
-                const response = await fetch('http://127.0.0.1:{{PORT}}/heart-rate');
-                if (!response.ok) {
-                    throw new Error('网络响应不正常');
-                }
-                const data = await response.json();
-                currentRate = parseInt(data.rate) || "--";
-                updateDisplay(currentRate);
-            } catch (error) {
-                console.error('获取心率数据失败:', error);
-                // 保持显示最后获取的值
-            }
-        }
+      async function fetchHeartRate() {
+          try {
+              const response = await fetch('http://127.0.0.1:{{PORT}}/heart-rate');
+              if (!response.ok) {
+                  throw new Error('网络响应不正常');
+              }
+              const data = await response.json();
 
-        // 更新显示
-        function updateDisplay(rate) {
-            const container = document.getElementById('heartContainer');
-            const display = document.getElementById('heartRate');
-            
-            display.textContent = rate;
-            
-            // 高心率效果
-            if (rate >= HIGH_RATE_THRESHOLD) {
-                container.classList.add('high-rate');
-                document.styleSheets[0].insertRule(
-                    `@keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.3); } 100% { transform: scale(1); } }`,
-                    document.styleSheets[0].cssRules.length
-                );
-            } else {
-                container.classList.remove('high-rate');
-                document.styleSheets[0].insertRule(
-                    `@keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }`,
-                    document.styleSheets[0].cssRules.length
-                );
-            }
-        }
+              // 检查数据有效性
+              if (data.rate === null || data.rate === undefined || data.rate === 'none') {
+                  updateDisplay('--');
+                  return;
+              }
 
-        setInterval(fetchHeartRate, 1590);
-        
-        // 初始加载时立即获取一次数据
-        fetchHeartRate();
+              // 检查数据是否过时
+              const currentTimestampMs = Date.now();
+              if (data.ts_millis && data.ts_millis !== 'none') {
+                  const timeDiffMs = currentTimestampMs - parseInt(data.ts_millis);
+                  if (timeDiffMs > 3000) {  // 超过3秒
+                      updateDisplay('--');
+                      return;
+                  }
+              }
+
+              currentRate = parseInt(data.rate) || '--';
+              updateDisplay(currentRate);
+          } catch (error) {
+              console.error('获取心率数据失败:', error);
+              updateDisplay('--');
+          }
+      }
+
+      // 更新显示
+      function updateDisplay(rate) {
+          const container = document.getElementById('heartContainer');
+          const display = document.getElementById('heartRate');
+
+          display.textContent = rate;
+
+          // 只有有效数字时才应用高心率效果
+          if (typeof rate === 'number' && rate >= HIGH_RATE_THRESHOLD) {
+              container.classList.add('high-rate');
+              document.styleSheets[0].insertRule(
+                  `@keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.3); } 100% { transform: scale(1); } }`,
+                  document.styleSheets[0].cssRules.length
+              );
+          } else {
+              container.classList.remove('high-rate');
+              document.styleSheets[0].insertRule(
+                  `@keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }`,
+                  document.styleSheets[0].cssRules.length
+              );
+          }
+      }
+
+      setInterval(fetchHeartRate, 1590);
+
+      // 初始加载时立即获取一次数据
+      fetchHeartRate();
     </script>
 </body>
 </html>

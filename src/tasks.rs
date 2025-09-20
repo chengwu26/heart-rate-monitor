@@ -4,15 +4,23 @@ use std::cell::RefCell;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::ops::Deref;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::OnceLock;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::RwLock;
 use tokio_stream::StreamExt;
 
 use crate::hr_monitor::HeartRateMonitor;
 
-static LATEST_HEART_RATE: AtomicU16 = AtomicU16::new(0);
+#[derive(Debug)]
+struct HeartRate {
+    ts_millis: u128,
+    value: u16,
+}
+
+static HEART_RATE: OnceLock<RwLock<HeartRate>> = OnceLock::new();
 
 /// Check connection status every 2 seconds and complete when the connection is broken.
 pub async fn check_connection_status<T>(monitor: T)
@@ -39,13 +47,31 @@ where
     };
 
     while let Some(Some(heart_rate)) = heart_rate_stream.next().await {
-        LATEST_HEART_RATE.store(heart_rate, Ordering::SeqCst);
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Invalid System Time")
+            .as_millis();
+
+        match HEART_RATE.get() {
+            None => HEART_RATE
+                .set(RwLock::from(HeartRate {
+                    ts_millis: timestamp,
+                    value: heart_rate,
+                }))
+                .unwrap(),
+            Some(rate) => {
+                let mut rate = rate.write().await;
+                rate.ts_millis = timestamp;
+                rate.value = heart_rate;
+            }
+        }
     }
 }
 
 /// Starts a tiny HTTP service that provides a heart rate data query interface listening on a specified port.
-/// Clients can obtain the current heart rate value by sending a GET request
-/// to the '/heart-rate' endpoint. The service will return an HTTP response containing real-time heart rate data.
+/// Clients can obtain the current heart rate value by sending a GET request to the '/heart-rate'
+/// endpoint. The service will return an HTTP response containing real-time heart rate data and
+/// Unix timestamp with millisecond.
 ///
 /// Example Request:
 /// GET http://localhost:3030/heart-rate
@@ -103,12 +129,14 @@ where
     let (status_line, contents) = if buffer.starts_with(get) {
         ("HTTP/1.1 200 OK", (*html).clone())
     } else if buffer.starts_with(heart_rate) {
-        let rate = LATEST_HEART_RATE.load(Ordering::SeqCst);
-
-        let response = if rate == 0 {
-            String::from("{\"rate\": none}")
+        let response = if let Some(rate) = HEART_RATE.get() {
+            let rate = rate.read().await;
+            format!(
+                "{{\"ts_millis\": {}, \"rate\": {}}}",
+                rate.ts_millis, rate.value
+            )
         } else {
-            format!("{{\"rate\": {rate}}}")
+            String::from("{\"ts\": none, \"rate\": none}")
         };
 
         ("HTTP/1.1 200 OK", response)
