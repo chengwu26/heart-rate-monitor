@@ -8,4 +8,5 @@ authors = ["kanggui <kg.he@outlook.com>"]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "fs", "sync", "io-util", "net", "io-std", "time"] }
 tokio-stream = "0.1"
 bluest = "0.6"
+clap = { version = "4", features = ["derive"] }
 

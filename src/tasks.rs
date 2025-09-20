@@ -3,6 +3,7 @@
 use std::cell::RefCell;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::ops::Deref;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU16, Ordering};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -54,7 +55,10 @@ pub async fn http_service(port: u16) {
     let listener =
         match TcpListener::bind(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port)).await {
             Ok(t) => {
-                println!("Listening at http://127.0.0.1:3030");
+                println!(
+                    "Listening at http://127.0.0.1:{}",
+                    t.local_addr().unwrap().port()
+                );
                 t
             }
             Err(e) => {
@@ -62,6 +66,14 @@ pub async fn http_service(port: u16) {
                 return;
             }
         };
+    let html = tokio::fs::read_to_string("heart_rate.html")
+        .await
+        .unwrap_or_else(|_| String::from("HTML file not found"))
+        .replace(
+            "{{PORT}}",
+            &format!("{}", listener.local_addr().unwrap().port()),
+        );
+    let html = Arc::new(html);
 
     loop {
         let stream = match listener.accept().await {
@@ -71,11 +83,14 @@ pub async fn http_service(port: u16) {
                 break;
             }
         };
-        tokio::spawn(process_connection(stream));
+        tokio::spawn(process_connection(stream, html.clone()));
     }
 }
 
-async fn process_connection(mut stream: TcpStream) {
+async fn process_connection<T>(mut stream: TcpStream, html: T)
+where
+    T: Deref<Target = String>,
+{
     let mut buffer = [0; 1024];
     if let Err(e) = stream.read(&mut buffer).await {
         eprintln!("{e}");
@@ -86,10 +101,7 @@ async fn process_connection(mut stream: TcpStream) {
     let heart_rate = b"GET /heart-rate HTTP";
 
     let (status_line, contents) = if buffer.starts_with(get) {
-        let html = tokio::fs::read_to_string("heart_rate.html")
-            .await
-            .unwrap_or_else(|_| String::from("HTML file not found"));
-        ("HTTP/1.1 200 OK", html)
+        ("HTTP/1.1 200 OK", (*html).clone())
     } else if buffer.starts_with(heart_rate) {
         let rate = LATEST_HEART_RATE.load(Ordering::SeqCst);
 

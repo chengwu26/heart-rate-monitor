@@ -7,12 +7,22 @@ use std::io::Write;
 use std::sync::Arc;
 
 use bluest::Adapter;
+use clap::Parser;
 use tokio_stream::StreamExt;
 
 use hr_monitor::{HRS_UUID, HeartRateMonitor};
 
+#[derive(Parser)]
+struct Cli {
+    /// Optional custom port(0: system assignment)
+    #[arg(short, long, value_name = "PORT", default_value_t = 3030)]
+    port: u16,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    let cli = Cli::parse();
+
     // Initial Bluetooth
     let adapter = Adapter::default()
         .await
@@ -20,12 +30,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     adapter.wait_available().await?;
 
     let hrs_device = select_device(&adapter).await?;
+    println!("Connecting");
     let monitor = Arc::new(RefCell::new(
         HeartRateMonitor::new(adapter, hrs_device).await?,
     ));
 
     // Start HTTP service
-    tokio::spawn(tasks::http_service(3030));
+    tokio::spawn(tasks::http_service(cli.port));
 
     // The connection may be disconnected for various reasons.
     // In this case, try to reconnect it.
