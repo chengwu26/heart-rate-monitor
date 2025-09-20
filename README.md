@@ -12,7 +12,7 @@ recordings.
 - Connects to compatible heart rate monitoring devices (MiBand 10 and similar)
 - Provides real-time heart rate data via HTTP endpoint
 - Simple integration with OBS Studio using Browser Source
-- Customizable heart rate UI by replacing `heart_rate.html` file
+- Customizable heart rate UI
 - Cross-platform support (Windows, macOS, Linux)
 
 ### How It Works

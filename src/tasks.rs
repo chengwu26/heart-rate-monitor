@@ -3,6 +3,7 @@
 use std::cell::RefCell;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::ops::Deref;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -77,7 +78,7 @@ where
 /// GET http://localhost:3030/heart-rate
 ///
 /// The response data is in JSON format.
-pub async fn http_service(port: u16) {
+pub async fn http_service<P: AsRef<Path>>(port: u16, html_file: P) {
     let listener =
         match TcpListener::bind(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port)).await {
             Ok(t) => {
@@ -92,9 +93,12 @@ pub async fn http_service(port: u16) {
                 return;
             }
         };
-    let html = tokio::fs::read_to_string("heart_rate.html")
+    let html = tokio::fs::read_to_string(&html_file)
         .await
-        .unwrap_or_else(|_| String::from("HTML file not found"))
+        .unwrap_or_else(|_| {
+            eprintln!("The HTML file '{}' not found", html_file.as_ref().display());
+            String::from("HTML file not found")
+        })
         .replace(
             "{{PORT}}",
             &format!("{}", listener.local_addr().unwrap().port()),

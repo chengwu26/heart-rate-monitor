@@ -14,9 +14,12 @@ use hr_monitor::{HRS_UUID, HeartRateMonitor};
 
 #[derive(Parser)]
 struct Cli {
-    /// Optional custom port(0: system assignment)
+    /// Custom port(0: system assignment)
     #[arg(short, long, value_name = "PORT", default_value_t = 3030)]
     port: u16,
+    /// Custom HTML
+    #[arg(short, long, value_name = "HTML_FILE", default_value_t = String::from("ui.html"))]
+    ui: String,
 }
 
 #[tokio::main]
@@ -36,7 +39,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     ));
 
     // Start HTTP service
-    tokio::spawn(tasks::http_service(cli.port));
+    tokio::spawn(tasks::http_service(cli.port, cli.ui));
 
     // The connection may be disconnected for various reasons.
     // In this case, try to reconnect it.
