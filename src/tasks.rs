@@ -93,10 +93,25 @@ pub async fn http_service<P: AsRef<Path>>(port: u16, html_file: P) {
                 return;
             }
         };
+
+    // Concatenate path
+    // - Release: paths relative to executable directory
+    // - Debug: paths relative to working directory (for testing)
+    let html_file = if html_file.as_ref().is_relative() && cfg!(not(debug_assertions)) {
+        let abs_path = std::env::current_exe()
+            .expect("Failed to get the path to the current executable")
+            .parent()
+            .expect("Executable has no parent directory")
+            .to_path_buf();
+        abs_path.join(html_file)
+    } else {
+        html_file.as_ref().to_owned()
+    };
+
     let html = tokio::fs::read_to_string(&html_file)
         .await
         .unwrap_or_else(|_| {
-            eprintln!("The HTML file '{}' not found", html_file.as_ref().display());
+            eprintln!("The HTML file '{}' not found", html_file.display());
             String::from("HTML file not found")
         })
         .replace(
