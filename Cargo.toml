@@ -1,5 +1,5 @@
 [package]
-name = "heart-rate-monitor"
+name = "hr-monitor"
 version = "0.1.0"
 edition = "2024"
 authors = ["kanggui <kg.he@outlook.com>"]
