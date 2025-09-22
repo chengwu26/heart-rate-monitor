@@ -1,13 +1,14 @@
 //! Asynchronous task used in 'main.rs'
 
 use std::cell::RefCell;
-use std::net::{Ipv4Addr, SocketAddrV4};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::ops::Deref;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use anyhow::{Context, Result, anyhow};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
@@ -34,18 +35,12 @@ where
 }
 
 /// Get the heart rate from `monitor` and synchronize to task `http_service`
-pub async fn monitor_heart_rate<T>(monitor: T)
+pub async fn monitor_heart_rate<T>(monitor: T) -> Result<()>
 where
     T: Deref<Target = RefCell<HeartRateMonitor>>,
 {
     let monitor = monitor.borrow();
-    let mut heart_rate_stream = match monitor.notify().await {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Failed to enable notification for the HRS device: {e}");
-            std::process::exit(1);
-        }
-    };
+    let mut heart_rate_stream = monitor.notify().await?;
 
     while let Some(Some(heart_rate)) = heart_rate_stream.next().await {
         let timestamp = SystemTime::now()
@@ -67,6 +62,9 @@ where
             }
         }
     }
+    Err(anyhow!(
+        "Device may be disconnected or the device has sent invalid data"
+    ))
 }
 
 /// Starts a tiny HTTP service that provides a heart rate data query interface listening on a specified port.
@@ -78,21 +76,14 @@ where
 /// GET http://localhost:3030/heart-rate
 ///
 /// The response data is in JSON format.
-pub async fn http_service<P: AsRef<Path>>(port: u16, html_file: P) {
-    let listener =
-        match TcpListener::bind(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port)).await {
-            Ok(t) => {
-                println!(
-                    "Listening at http://127.0.0.1:{}",
-                    t.local_addr().unwrap().port()
-                );
-                t
-            }
-            Err(e) => {
-                eprintln!("Failed to use port 3030: {e}\nHTTP Service Exit");
-                return;
-            }
-        };
+pub async fn http_service<P: AsRef<Path>>(port: u16, html_file: P) -> Result<()> {
+    let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port))
+        .await
+        .with_context(|| format!("Failed to listening at the port: {}", port))?;
+    println!(
+        "Listening at http://127.0.0.1:{}",
+        listener.local_addr().unwrap().port()
+    );
 
     // Concatenate path
     // - Release: paths relative to executable directory
@@ -110,10 +101,7 @@ pub async fn http_service<P: AsRef<Path>>(port: u16, html_file: P) {
 
     let html = tokio::fs::read_to_string(&html_file)
         .await
-        .unwrap_or_else(|_| {
-            eprintln!("The HTML file '{}' not found", html_file.display());
-            String::from("HTML file not found")
-        })
+        .with_context(|| format!("Can't open the file: {}", html_file.display()))?
         .replace(
             "{{PORT}}",
             &format!("{}", listener.local_addr().unwrap().port()),
@@ -121,24 +109,22 @@ pub async fn http_service<P: AsRef<Path>>(port: u16, html_file: P) {
     let html = Arc::new(html);
 
     loop {
-        let stream = match listener.accept().await {
-            Ok((s, _)) => s,
-            Err(e) => {
-                eprintln!("Failed to get client: {e}");
-                break;
-            }
-        };
-        tokio::spawn(process_connection(stream, html.clone()));
+        let (stream, addr) = listener
+            .accept()
+            .await
+            .with_context(|| format!("Failed to get client"))?;
+        tokio::spawn(process_connection(stream, addr, html.clone()));
     }
 }
 
-async fn process_connection<T>(mut stream: TcpStream, html: T)
-where
-    T: Deref<Target = String>,
-{
+async fn process_connection(
+    mut stream: TcpStream,
+    addr: SocketAddr,
+    html: impl Deref<Target = String>,
+) {
     let mut buffer = [0; 1024];
     if let Err(e) = stream.read(&mut buffer).await {
-        eprintln!("{e}");
+        eprintln!("Failed to read scoket from {addr}: {e}");
         return;
     }
 
@@ -176,11 +162,11 @@ where
     );
 
     if let Err(e) = stream.write(response.as_bytes()).await {
-        eprintln!("{e}");
+        eprintln!("Failed to response the HTTP request from {addr}: {e}");
         return;
     }
     if let Err(e) = stream.flush().await {
-        eprintln!("{e}");
+        eprintln!("Failed to response the HTTP request from {addr}: {e}");
         return;
     }
 }

@@ -2,10 +2,10 @@ mod hr_monitor;
 mod tasks;
 
 use std::cell::RefCell;
-use std::error::Error;
 use std::io::Write;
 use std::sync::Arc;
 
+use anyhow::{Context, Result};
 use bluest::Adapter;
 use clap::Parser;
 use tokio_stream::StreamExt;
@@ -23,13 +23,13 @@ struct Cli {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Initial Bluetooth
     let adapter = Adapter::default()
         .await
-        .ok_or("Bluetooth adapter not found")?;
+        .context("Bluetooth adapter not found")?;
     adapter.wait_available().await?;
 
     let hrs_device = select_device(&adapter).await?;
@@ -39,7 +39,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     ));
 
     // Start HTTP service
-    tokio::spawn(tasks::http_service(cli.port, cli.ui));
+    tokio::spawn(async move {
+        if let Err(e) = tasks::http_service(cli.port, cli.ui).await {
+            eprintln!("HTTP server stopped: {e}");
+            std::process::exit(1);
+        }
+    });
 
     // The connection may be disconnected for various reasons.
     // In this case, try to reconnect it.
@@ -53,7 +58,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
         // Block current task, if the device not disconnected
         tokio::select! {
-            _ = tasks::monitor_heart_rate(monitor.clone()) => {}
+            v = tasks::monitor_heart_rate(monitor.clone()) => { v? }
             _ = tasks::check_connection_status(monitor.clone()) => {}
         }
 
@@ -69,11 +74,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 /// Scan HRS devices, and return a device which user selected
 // TODO: This implementation is very stupid, improve it.
-async fn select_device(adapter: &Adapter) -> Result<bluest::Device, bluest::Error> {
+async fn select_device(adapter: &Adapter) -> Result<bluest::Device> {
     use std::time::{Duration, Instant};
 
     let mut devices = Vec::new();
-    let mut devices_stream = adapter.discover_devices(&[HRS_UUID]).await?;
+    let mut devices_stream = adapter
+        .discover_devices(&[HRS_UUID])
+        .await
+        .context("Failed to scan/discover device")?;
     println!("Scanning HRS devices...");
     loop {
         let start = Instant::now();
@@ -100,7 +108,7 @@ async fn select_device(adapter: &Adapter) -> Result<bluest::Device, bluest::Erro
 
             std::io::stdin()
                 .read_line(&mut input)
-                .expect("Failed to read from stdin.");
+                .context("Failed to read from stdin.")?;
 
             if let Ok(index) = input.trim().parse::<usize>()
                 && index > 0

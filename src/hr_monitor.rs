@@ -1,5 +1,4 @@
-use std::error::Error;
-
+use anyhow::{Context, Result};
 use bluest::btuuid::{bluetooth_uuid_from_u16, characteristics::HEART_RATE_MEASUREMENT};
 use bluest::{Adapter, Characteristic, Device, Uuid};
 use tokio_stream::{Stream, StreamExt, adapters::Map};
@@ -15,9 +14,12 @@ pub struct HeartRateMonitor {
 
 impl HeartRateMonitor {
     /// This function will use `adapter` to connect to the `device` once, without manually calling `HeartRateMonitor::connect`.
-    pub async fn new(adapter: Adapter, device: Device) -> Result<Self, Box<dyn Error>> {
+    pub async fn new(adapter: Adapter, device: Device) -> Result<Self> {
         if !device.is_connected().await {
-            adapter.connect_device(&device).await?;
+            adapter
+                .connect_device(&device)
+                .await
+                .with_context(|| format!("Failed to connect to device '{}'", device))?;
         }
 
         let hrm = HeartRateMonitor::get_hrm_characteristic(&device).await?;
@@ -48,13 +50,12 @@ impl HeartRateMonitor {
             impl Stream<Item = Result<Vec<u8>, bluest::Error>> + '_,
             impl FnMut(Result<Vec<u8>, bluest::Error>) -> Option<u16>,
         >,
-        Box<dyn Error>,
     > {
         self.characteristic
             .notify()
             .await
             .map(|s| s.map(|raw| HeartRateMonitor::parse(raw.ok()?)))
-            .map_err(|e| Box::new(e) as Box<dyn Error>)
+            .with_context(|| format!("Failed to subscribe heart rate data from {}", self.device))
     }
 
     /// The connection status for HRS device.
@@ -65,12 +66,16 @@ impl HeartRateMonitor {
     /// Connect to the HRS device.
     ///
     /// This function is often used to reconnect to the device.
-    pub async fn connect(&mut self) -> Result<(), Box<dyn Error>> {
+    pub async fn connect(&mut self) -> Result<()> {
         if self.device.is_connected().await {
             return Ok(());
         }
 
-        self.adapter.connect_device(&self.device).await?;
+        self.adapter
+            .connect_device(&self.device)
+            .await
+            .with_context(|| format!("Failed to connect to device '{}'", self.device))?;
+
         // Refresh Characteristic
         self.characteristic = HeartRateMonitor::get_hrm_characteristic(&self.device).await?;
         Ok(())
@@ -91,22 +96,28 @@ impl HeartRateMonitor {
         Some(heart_rate_value)
     }
 
-    async fn get_hrm_characteristic(device: &Device) -> Result<Characteristic, Box<dyn Error>> {
+    async fn get_hrm_characteristic(device: &Device) -> Result<Characteristic> {
         let heart_rate_service = device
             .discover_services_with_uuid(HRS_UUID)
-            .await?
+            .await
+            .with_context(|| {
+                if cfg!(target_os = "windows") {
+                    format!("Failed to connect to device '{}'", device)
+                } else {
+                    String::from("Something went wrong, action: Discover Service")
+                }
+            })?
             .into_iter()
             .next()
-            .ok_or("Device should has one heart rate service at least")?;
+            .unwrap();
 
         let characteristic = heart_rate_service
             .discover_characteristics_with_uuid(HEART_RATE_MEASUREMENT)
-            .await?
+            .await
+            .context("Something went wrong, action: Discover Characteristic")?
             .into_iter()
             .next()
-            .ok_or(
-                "HeartRateService should has one heart rate measurement characteristic at least",
-            )?;
+            .unwrap();
 
         Ok(characteristic)
     }
