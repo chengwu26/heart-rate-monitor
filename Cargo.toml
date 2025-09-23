@@ -10,4 +10,5 @@ tokio-stream = "0.1"
 bluest = "0.6"
 clap = { version = "4", features = ["derive"] }
 anyhow = "1.0"
+camino = "1"
 

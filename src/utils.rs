@@ -1,11 +1,12 @@
 use std::cell::LazyCell;
 use std::env::{current_dir, current_exe};
-use std::path::{Path, PathBuf};
 
-const EXE_DIR: LazyCell<PathBuf> = LazyCell::new(|| {
+use camino::{Utf8Path, Utf8PathBuf};
+
+const EXE_DIR: LazyCell<Utf8PathBuf> = LazyCell::new(|| {
     let mut exe_dir = current_exe().unwrap();
     exe_dir.pop();
-    exe_dir
+    Utf8PathBuf::from_path_buf(exe_dir).expect("The program path is not valid UTF-8")
 });
 
 /// Find the `file`(must be relative path) and return the absolute filepath
@@ -15,13 +16,16 @@ const EXE_DIR: LazyCell<PathBuf> = LazyCell::new(|| {
 /// - Current working directory
 /// - Binary directory(not canonicalize)
 /// - Binary directory(canonicalize)
-pub fn find_file(file: impl AsRef<Path>) -> Option<PathBuf> {
+pub fn find_file(file: impl AsRef<Utf8Path>) -> Option<Utf8PathBuf> {
     let file = file.as_ref();
     debug_assert!(file.is_relative());
 
     // Find file in current working directory
     if file.exists() {
-        return Some(current_dir().unwrap().join(file));
+        return Some(
+            Utf8PathBuf::from_path_buf(current_dir().unwrap().join(file))
+                .expect("Current working path is not valid UTF-8"),
+        );
     }
     // Find file in executable directory(not canonicalize)
     let f = EXE_DIR.join(file);
@@ -29,7 +33,7 @@ pub fn find_file(file: impl AsRef<Path>) -> Option<PathBuf> {
         return Some(f);
     }
     // Find file in executable directory(canonicalize)
-    let f = EXE_DIR.canonicalize().unwrap().join(file);
+    let f = EXE_DIR.canonicalize_utf8().unwrap().join(file);
     if f.exists() {
         return Some(f);
     }

@@ -4,17 +4,17 @@ mod utils;
 
 use std::cell::{LazyCell, RefCell};
 use std::io::Write;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, bail, ensure};
 use bluest::Adapter;
+use camino::Utf8PathBuf;
 use clap::Parser;
 use tokio_stream::StreamExt;
 
 use hr_monitor::{HRS_UUID, HeartRateMonitor};
 
-const THEME_HOME: LazyCell<PathBuf> =
+const THEME_HOME: LazyCell<Utf8PathBuf> =
     LazyCell::new(|| utils::find_file("themes").expect("Theme library not found"));
 
 #[derive(Parser)]
@@ -153,7 +153,7 @@ fn set_theme(theme: &str) -> Result<()> {
     ensure!(
         theme_file.is_file(),
         "Failed to set theme: no such theme in your theme library '{}'",
-        THEME_HOME.display()
+        *THEME_HOME
     );
 
     let link_file = THEME_HOME.join("default");
@@ -178,9 +178,9 @@ fn set_theme(theme: &str) -> Result<()> {
 }
 
 fn list_themes() -> Result<impl Iterator<Item = String>> {
-    Ok(THEME_HOME.read_dir()?.filter_map(|e| {
+    Ok(THEME_HOME.read_dir_utf8()?.filter_map(|e| {
         let entry = e.ok()?;
-        let name = entry.file_name().to_string_lossy().to_string();
+        let name = entry.file_name();
         if name.ends_with(".html") {
             Some(name.trim_end_matches(".html").to_string())
         } else {
