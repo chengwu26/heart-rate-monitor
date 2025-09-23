@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Heart Rate</title>
+    <style>
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .heart-rate-container {
+            position: relative;
+            display: flex;
+            align-items: center;
+            background-color: rgba(0, 0, 0, 0);
+            border-radius: 20px;
+            padding: 5px 10px;
+            color: white;
+            min-width: 50px;
+            height: 30px;
+            /* transition: all 0.3s ease; */
+        }
+
+        .heart-icon {
+            color: #ff4d4d;
+            font-size: 18px;
+            margin-right: 8px;
+            animation: pulse 1s infinite;
+        }
+
+        .heart-rate {
+            color: #ff4d4d;
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        /* 高心率样式 */
+        .high-rate {
+            animation: pulse-fast 0.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.1);
+            }
+
+            100% {
+                transform: scale(1);
+            }
+        }
+
+        @keyframes pulse-fast {
+            0% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.1);
+            }
+
+            100% {
+                transform: scale(1);
+            }
+
+        }
+    </style>
+</head>
+
+<body>
+    <div class="heart-rate-container" id="heartContainer">
+        <div class="heart-icon">❤</div>
+        <div class="heart-rate" id="heartRate">--</div>
+    </div>
+
+    <script>
+        const HIGH_RATE_THRESHOLD = 120;
+        let currentRate = 0;
+
+        async function fetchHeartRate() {
+            try {
+                const response = await fetch('http://127.0.0.1:{{PORT}}/heart-rate');
+                if (!response.ok) {
+                    throw new Error('网络响应不正常');
+                }
+                const data = await response.json();
+
+                // 检查数据有效性
+                if (data.rate === null || data.rate === undefined || data.rate === 'none') {
+                    updateDisplay('--');
+                    return;
+                }
+
+                // 检查数据是否过时
+                const currentTimestampMs = Date.now();
+                if (data.ts_millis && data.ts_millis !== 'none') {
+                    const timeDiffMs = currentTimestampMs - parseInt(data.ts_millis);
+                    if (timeDiffMs > 3000) {  // 超过3秒
+                        updateDisplay('--');
+                        return;
+                    }
+                }
+
+                currentRate = parseInt(data.rate) || '--';
+                updateDisplay(currentRate);
+            } catch (error) {
+                console.error('获取心率数据失败:', error);
+                updateDisplay('--');
+            }
+        }
+
+        function updateDisplay(rate) {
+            const container = document.getElementById('heartContainer');
+            const display = document.getElementById('heartRate');
+
+            display.textContent = rate;
+
+            if (typeof rate === 'number' && rate >= HIGH_RATE_THRESHOLD) {
+                container.classList.add('high-rate');
+                document.styleSheets[0].insertRule(
+                    `@keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.3); } 100% { transform: scale(1); } }`,
+                    document.styleSheets[0].cssRules.length
+                );
+            } else {
+                container.classList.remove('high-rate');
+                document.styleSheets[0].insertRule(
+                    `@keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }`,
+                    document.styleSheets[0].cssRules.length
+                );
+            }
+        }
+
+        setInterval(fetchHeartRate, 1590);
+
+        fetchHeartRate();
+    </script>
+</body>
+
+</html>

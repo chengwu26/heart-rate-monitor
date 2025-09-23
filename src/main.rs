@@ -1,30 +1,46 @@
 mod hr_monitor;
 mod tasks;
+mod utils;
 
-use std::cell::RefCell;
+use std::cell::{LazyCell, RefCell};
 use std::io::Write;
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail, ensure};
 use bluest::Adapter;
 use clap::Parser;
 use tokio_stream::StreamExt;
 
 use hr_monitor::{HRS_UUID, HeartRateMonitor};
 
+const THEME_HOME: LazyCell<PathBuf> =
+    LazyCell::new(|| utils::find_file("themes").expect("Theme library not found"));
+
 #[derive(Parser)]
+#[command(version)]
 struct Cli {
     /// Custom port(0: system assignment)
     #[arg(short, long, value_name = "PORT", default_value_t = 3030)]
     port: u16,
-    /// Custom HTML
-    #[arg(short, long, value_name = "HTML_FILE", default_value_t = String::from("ui.html"))]
-    ui: String,
+    /// Run with <THEME> and set as default theme
+    #[arg(short, long, value_name = "THEME")]
+    theme: Option<String>,
+    /// List all themes
+    #[arg(short, long)]
+    list: bool,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    if cli.list {
+        list_themes()?.for_each(|theme| println!("{theme}"));
+        return Ok(());
+    }
+    if let Some(ref theme) = cli.theme {
+        set_theme(theme)?
+    }
 
     // Initial Bluetooth
     let adapter = Adapter::default()
@@ -40,8 +56,8 @@ async fn main() -> Result<()> {
 
     // Start HTTP service
     tokio::spawn(async move {
-        if let Err(e) = tasks::http_service(cli.port, cli.ui).await {
-            eprintln!("HTTP server stopped: {e}");
+        if let Err(e) = tasks::http_service(cli.port, THEME_HOME.join("default")).await {
+            eprintln!("HTTP server stopped: {e:?}");
             std::process::exit(1);
         }
     });
@@ -125,4 +141,50 @@ async fn select_device(adapter: &Adapter) -> Result<bluest::Device> {
             input.clear();
         }
     }
+}
+
+fn set_theme(theme: &str) -> Result<()> {
+    ensure!(
+        !theme.contains(std::path::MAIN_SEPARATOR),
+        "Invalid theme name"
+    );
+
+    let theme_file = THEME_HOME.join(format!("{theme}.html"));
+    ensure!(
+        theme_file.is_file(),
+        "Failed to set theme: no such theme in your theme library '{}'",
+        THEME_HOME.display()
+    );
+
+    let link_file = THEME_HOME.join("default");
+    if link_file.exists() {
+        std::fs::remove_file(&link_file)
+            .context("Failed to set theme: Can't to remove old symlink")?;
+    }
+    #[cfg(target_os = "windows")]
+    if let Err(e) = std::os::windows::fs::symlink_file(theme_file, link_file) {
+        use std::io::ErrorKind;
+        if let ErrorKind::PermissionDenied = e.kind() {
+            bail!(
+                "Failed to set theme: You can try enabling Developer Mode or running the process as an administrator."
+            )
+        }
+        bail!("Failed to set theme: Can't create symlink")
+    }
+    #[cfg(not(target_os = "windows"))]
+    std::os::unix::fs::symlink(theme_file, link_file)
+        .context("Failed to set theme: Can't create symlink")?;
+    Ok(())
+}
+
+fn list_themes() -> Result<impl Iterator<Item = String>> {
+    Ok(THEME_HOME.read_dir()?.filter_map(|e| {
+        let entry = e.ok()?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.ends_with(".html") {
+            Some(name.trim_end_matches(".html").to_string())
+        } else {
+            None
+        }
+    }))
 }

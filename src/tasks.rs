@@ -76,7 +76,7 @@ where
 /// GET http://localhost:3030/heart-rate
 ///
 /// The response data is in JSON format.
-pub async fn http_service<P: AsRef<Path>>(port: u16, html_file: P) -> Result<()> {
+pub async fn http_service(port: u16, html_file: impl AsRef<Path>) -> Result<()> {
     let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port))
         .await
         .with_context(|| format!("Failed to listening at the port: {}", port))?;
@@ -85,23 +85,9 @@ pub async fn http_service<P: AsRef<Path>>(port: u16, html_file: P) -> Result<()>
         listener.local_addr().unwrap().port()
     );
 
-    // Concatenate path
-    // - Release: paths relative to executable directory
-    // - Debug: paths relative to working directory (for testing)
-    let html_file = if html_file.as_ref().is_relative() && cfg!(not(debug_assertions)) {
-        let abs_path = std::env::current_exe()
-            .expect("Failed to get the path to the current executable")
-            .parent()
-            .expect("Executable has no parent directory")
-            .to_path_buf();
-        abs_path.join(html_file)
-    } else {
-        html_file.as_ref().to_owned()
-    };
-
     let html = tokio::fs::read_to_string(&html_file)
         .await
-        .with_context(|| format!("Can't open the file: {}", html_file.display()))?
+        .with_context(|| format!("Can't open the file: {}", html_file.as_ref().display()))?
         .replace(
             "{{PORT}}",
             &format!("{}", listener.local_addr().unwrap().port()),
