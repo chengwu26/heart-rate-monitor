@@ -1,9 +1,9 @@
-use std::cell::LazyCell;
 use std::env::{current_dir, current_exe};
+use std::sync::LazyLock;
 
 use camino::{Utf8Path, Utf8PathBuf};
 
-const EXE_DIR: LazyCell<Utf8PathBuf> = LazyCell::new(|| {
+static EXE_DIR: LazyLock<Utf8PathBuf> = LazyLock::new(|| {
     let mut exe_dir = current_exe().unwrap();
     exe_dir.pop();
     Utf8PathBuf::from_path_buf(exe_dir).expect("The program path is not valid UTF-8")

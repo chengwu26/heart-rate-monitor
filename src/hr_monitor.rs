@@ -87,7 +87,7 @@ impl HeartRateMonitor {
     ///
     /// If the `data` is invalid, return None.
     fn parse(data: Vec<u8>) -> Option<u16> {
-        let flag = *data.get(0)?;
+        let flag = *data.first()?;
         // Heart Rate Value Format
         let mut heart_rate_value = *data.get(1)? as u16;
         if flag & 0b00001 != 0 {

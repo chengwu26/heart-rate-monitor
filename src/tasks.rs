@@ -25,6 +25,8 @@ struct HeartRate {
 static HEART_RATE: OnceLock<RwLock<HeartRate>> = OnceLock::new();
 
 /// Check connection status every 2 seconds and complete when the connection is broken.
+///
+/// Note: This task will hold `monitor`'s shared reference across an await suspension point
 pub async fn check_connection_status<T>(monitor: T)
 where
     T: Deref<Target = RefCell<HeartRateMonitor>>,
@@ -34,7 +36,9 @@ where
     }
 }
 
-/// Get the heart rate from `monitor` and synchronize to task `http_service`
+/// Get the heart rate from `monitor`
+///
+/// Note: This task will hold `monitor`'s shared reference until it's completed
 pub async fn monitor_heart_rate<T>(monitor: T) -> Result<()>
 where
     T: Deref<Target = RefCell<HeartRateMonitor>>,
@@ -80,25 +84,17 @@ pub async fn http_service(port: u16, html_file: impl AsRef<Path>) -> Result<()> 
     let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port))
         .await
         .with_context(|| format!("Failed to listening at the port: {}", port))?;
-    println!(
-        "Listening at http://127.0.0.1:{}",
-        listener.local_addr().unwrap().port()
-    );
+    let port = listener.local_addr().unwrap().port();
+    println!("Listening at http://127.0.0.1:{port}");
 
     let html = tokio::fs::read_to_string(&html_file)
         .await
         .with_context(|| format!("Can't open the file: {}", html_file.as_ref().display()))?
-        .replace(
-            "{{PORT}}",
-            &format!("{}", listener.local_addr().unwrap().port()),
-        );
+        .replace("{{PORT}}", &format!("{port}"));
     let html = Arc::new(html);
 
     loop {
-        let (stream, addr) = listener
-            .accept()
-            .await
-            .with_context(|| format!("Failed to get client"))?;
+        let (stream, addr) = listener.accept().await.context("Failed to get client")?;
         tokio::spawn(process_connection(stream, addr, html.clone()));
     }
 }
@@ -153,6 +149,5 @@ async fn process_connection(
     }
     if let Err(e) = stream.flush().await {
         eprintln!("Failed to response the HTTP request from {addr}: {e}");
-        return;
     }
 }

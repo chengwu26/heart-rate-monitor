@@ -2,9 +2,10 @@ mod hr_monitor;
 mod tasks;
 mod utils;
 
-use std::cell::{LazyCell, RefCell};
+use std::cell::RefCell;
 use std::io::Write;
-use std::sync::Arc;
+use std::rc::Rc;
+use std::sync::LazyLock;
 
 use anyhow::{Context, Result, bail, ensure};
 use bluest::Adapter;
@@ -14,8 +15,8 @@ use tokio_stream::StreamExt;
 
 use hr_monitor::{HRS_UUID, HeartRateMonitor};
 
-const THEME_HOME: LazyCell<Utf8PathBuf> =
-    LazyCell::new(|| utils::find_file("themes").expect("Theme library not found"));
+static THEME_HOME: LazyLock<Utf8PathBuf> =
+    LazyLock::new(|| utils::find_file("themes").expect("Theme library not found"));
 
 #[derive(Parser)]
 #[command(version)]
@@ -50,7 +51,7 @@ async fn main() -> Result<()> {
 
     let hrs_device = select_device(&adapter).await?;
     println!("Connecting");
-    let monitor = Arc::new(RefCell::new(
+    let monitor = Rc::new(RefCell::new(
         HeartRateMonitor::new(adapter, hrs_device).await?,
     ));
 
@@ -74,7 +75,7 @@ async fn main() -> Result<()> {
 
         // Block current task, if the device not disconnected
         tokio::select! {
-            v = tasks::monitor_heart_rate(monitor.clone()) => { v? }
+            v = tasks::monitor_heart_rate(monitor.clone()) => { return v }
             _ = tasks::check_connection_status(monitor.clone()) => {}
         }
 
@@ -84,8 +85,7 @@ async fn main() -> Result<()> {
             eprintln!("Failed to reconnect: {e}")
         }
     }
-    println!("Program Exit");
-    Ok(())
+    bail!("Unable to connect to the device")
 }
 
 /// Scan HRS devices, and return a device which user selected
