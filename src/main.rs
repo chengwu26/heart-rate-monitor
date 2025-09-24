@@ -30,6 +30,9 @@ struct Cli {
     /// List all themes
     #[arg(short, long)]
     list: bool,
+    /// Preview
+    #[arg(long)]
+    preview: bool,
 }
 
 #[tokio::main]
@@ -41,6 +44,12 @@ async fn main() -> Result<()> {
     }
     if let Some(ref theme) = cli.theme {
         set_theme(theme)?
+    }
+    if cli.preview {
+        tokio::select! {
+            _ = tasks::fake_heart_rate() => {},
+            v = tasks::http_service(cli.port, THEME_HOME.join("default")) => { return v; }
+        };
     }
 
     // Initial Bluetooth

@@ -71,6 +71,33 @@ where
     ))
 }
 
+pub async fn fake_heart_rate() {
+    let fake_data: [u16; 4] = [90, 100, 120, 130];
+
+    let mut heart_rate = fake_data.into_iter().cycle();
+    loop {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Invalid System Time")
+            .as_millis();
+
+        match HEART_RATE.get() {
+            None => HEART_RATE
+                .set(RwLock::from(HeartRate {
+                    ts_millis: timestamp,
+                    value: heart_rate.next().unwrap(),
+                }))
+                .unwrap(),
+            Some(rate) => {
+                let mut rate = rate.write().await;
+                rate.ts_millis = timestamp;
+                rate.value = heart_rate.next().unwrap();
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await
+    }
+}
+
 /// Starts a tiny HTTP service that provides a heart rate data query interface listening on a specified port.
 /// Clients can obtain the current heart rate value by sending a GET request to the '/heart-rate'
 /// endpoint. The service will return an HTTP response containing real-time heart rate data and
@@ -113,9 +140,7 @@ async fn process_connection(
     let get = b"GET / HTTP";
     let heart_rate = b"GET /heart-rate HTTP";
 
-    let (status_line, contents) = if buffer.starts_with(get) {
-        ("HTTP/1.1 200 OK", (*html).clone())
-    } else if buffer.starts_with(heart_rate) {
+    let (status_line, contents) = if buffer.starts_with(heart_rate) {
         let response = if let Some(rate) = HEART_RATE.get() {
             let rate = rate.read().await;
             format!(
@@ -127,6 +152,8 @@ async fn process_connection(
         };
 
         ("HTTP/1.1 200 OK", response)
+    } else if buffer.starts_with(get) {
+        ("HTTP/1.1 200 OK", (*html).clone())
     } else {
         ("HTTP/1.1 404 NOT FOUND", String::from("404 Not Found"))
     };
