@@ -19,7 +19,7 @@ recordings.
 
 ### About Customize UI
 There are some variables that can be used in the HTML file to replace runtime information(such as listening port).
-The variable name must enclosed in "{{}}" (e.g. `{{PORT}}`).
+The variable name must enclosed in "\${{}}" (e.g. `${{PORT}}`).
 
 #### Available variables
 | Name | Description |

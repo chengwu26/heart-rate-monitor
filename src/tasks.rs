@@ -117,7 +117,7 @@ pub async fn http_service(port: u16, html_file: impl AsRef<Path>) -> Result<()> 
     let html = tokio::fs::read_to_string(&html_file)
         .await
         .with_context(|| format!("Can't open the file: {}", html_file.as_ref().display()))?
-        .replace("{{PORT}}", &format!("{port}"));
+        .replace("${{PORT}}", &format!("{port}"));
     let html = Arc::new(html);
 
     loop {

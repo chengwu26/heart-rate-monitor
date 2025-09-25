@@ -89,7 +89,7 @@
 
         async function fetchHeartRate() {
             try {
-                const response = await fetch('http://127.0.0.1:{{PORT}}/heart-rate');
+                const response = await fetch('http://127.0.0.1:${{PORT}}/heart-rate');
                 if (!response.ok) {
                     throw new Error('网络响应不正常');
                 }
