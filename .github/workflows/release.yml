@@ -26,6 +26,34 @@ jobs:
           draft: false
           prerelease: false
 
+  package-themes:
+    name: Package Themes
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create themes zip archive
+        run: |
+          if [ -d "themes" ]; then
+            zip -r themes.zip themes/
+            echo "Themes archive created successfully"
+          else
+            echo "Warning: themes directory not found"
+            zip empty.zip .
+          fi
+
+      - name: Upload themes archive to Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./themes.zip
+          asset_name: themes.zip
+          asset_content_type: application/zip
+
   build-and-upload:
     name: Build and Upload - ${{ matrix.target }}
     needs: create-release
@@ -34,14 +62,14 @@ jobs:
         include:
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            binary_name: heart-rate-monitor.exe
+            binary_name: hr-monitor.exe
           - target: x86_64-apple-darwin
             os: macos-latest
-            binary_name: heart-rate-monitor
+            binary_name: hr-monitor
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             deps: "libdbus-1-dev pkg-config"
-            binary_name: heart-rate-monitor
+            binary_name: hr-monitor
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
